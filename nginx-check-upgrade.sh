@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Debian 12/13: inspect native nginx and upgrade to official nginx 1.31.9.
+# Debian 12/13 and Ubuntu 22.04/24.04/26.04: inspect native nginx and upgrade to official nginx 1.31.9.
 # Usage: bash nginx-check-upgrade.sh [--check|--help]
 set -Eeuo pipefail
 export LC_ALL=C
@@ -14,16 +14,18 @@ die() { echo "停止：$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || die '请使用 root 或 sudo bash 执行。'
 [[ -r /etc/os-release ]] || die '无法识别系统。'
 . /etc/os-release
-[[ ${ID:-} == debian ]] || die '此脚本只支持 Debian 12/13，不修改当前系统。'
-case "${VERSION_ID:-}" in
-  12) suite=bookworm ;;
-  13) suite=trixie ;;
-  *) die '此脚本只支持 Debian 12/13。' ;;
+case "${ID:-}:${VERSION_ID:-}" in
+  debian:12) repo_os=debian; suite=bookworm ;;
+  debian:13) repo_os=debian; suite=trixie ;;
+  ubuntu:22.04) repo_os=ubuntu; suite=jammy ;;
+  ubuntu:24.04) repo_os=ubuntu; suite=noble ;;
+  ubuntu:26.04) repo_os=ubuntu; suite=resolute ;;
+  *) die '仅支持 Debian 12/13 和 Ubuntu 22.04/24.04/26.04。' ;;
 esac
 arch="$(dpkg --print-architecture)"
 [[ $arch == amd64 || $arch == arm64 ]] || die "不支持的架构：$arch"
 command -v nginx >/dev/null || die '宿主机未找到 nginx；Docker 内的 nginx 需单独更新镜像。'
-[[ $(dpkg-query -W -f='${Status}' nginx 2>/dev/null) == 'install ok installed' ]] || die 'nginx 不是已安装的 Debian 软件包，需单独评估。'
+[[ $(dpkg-query -W -f='${Status}' nginx 2>/dev/null) == 'install ok installed' ]] || die 'nginx 不是已安装的 APT 软件包，需单独评估。'
 [[ $(readlink -f "$(command -v nginx)") == /usr/sbin/nginx ]] || die '发现自定义 nginx 路径，需单独评估。'
 systemctl cat nginx >/dev/null 2>&1 || die '没有可识别的 nginx systemd 服务。'
 unit_exec="$(systemctl show nginx -p ExecStart --value)"
@@ -41,11 +43,11 @@ echo '此检查不等同于外部可达性测试，也不检查 Linux 内核漏�
 modules="$(dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' 'libnginx-mod-*' 'nginx-module-*' 2>/dev/null || true)"
 modules="$(printf '%s\n' "$modules" | awk '$2 == "installed" {print $1}')"
 blocked=0
-if [[ -n $modules ]] || printf '%s\n' "$config_dump" | grep -qE '^[[:space:]]*load_module[[:space:]]'; then
+if [[ -n $modules ]] || grep -qE '^[[:space:]]*load_module[[:space:]]' <<< "$config_dump"; then
   echo "发现动态模块，自动升级将停止：${modules:-配置中存在 load_module}"
   blocked=1
 fi
-current="$(nginx -v 2>&1 | sed -n 's/.*nginx\///p')"
+current="$(nginx -v 2>&1 | sed -nE 's@.*nginx/([0-9]+\.[0-9]+\.[0-9]+).*@\1@p')"
 if [[ $current =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && dpkg --compare-versions "$current" ge "$TARGET"; then
   echo "当前程序版本已达到 $TARGET；不降级、不重装。"
   echo '如刚安装过新版，仍需确认服务已重启，运行中的进程使用新版程序。'
@@ -77,8 +79,9 @@ gpg --batch --show-keys --with-colons "$backup/nginx_signing.key" > "$backup/key
 grep -q '^fpr:::::::::573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62:' "$backup/key-info.txt" || die '官方密钥指纹未匹配，未添加仓库。'
 gpg --batch --yes --dearmor -o /usr/share/keyrings/nginx-archive-keyring.gpg "$backup/nginx_signing.key"
 chmod 644 /usr/share/keyrings/nginx-archive-keyring.gpg
-printf 'deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/mainline/debian %s nginx\n' "$suite" > /etc/apt/sources.list.d/nginx.list
+printf 'deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/mainline/%s %s nginx\n' "$repo_os" "$suite" > /etc/apt/sources.list.d/nginx.list
 printf 'Package: nginx nginx-module-*\nPin: origin nginx.org\nPin-Priority: 900\n' > /etc/apt/preferences.d/99nginx
+chmod 644 /etc/apt/sources.list.d/nginx.list /etc/apt/preferences.d/99nginx
 apt-get update
 apt-cache madison nginx > "$backup/available-versions.txt"
 package_version="$(awk '$3 ~ /^1\.31\.9-/ && /nginx\.org/ {print $3; exit}' "$backup/available-versions.txt")"
