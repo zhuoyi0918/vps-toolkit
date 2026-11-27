@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION=1.0.2
+VERSION=1.0.3
 HOME_DIR=/opt/zhuoyi-amneziawg
 CLIENT_DIR=/root/awg
 SERVER_CONF=/etc/amnezia/amneziawg/awg0.conf
@@ -91,6 +91,7 @@ export_profile() {
     python3 - "$1" "$2" "$3" <<'AWG_PYTHON'
 import base64
 import ipaddress
+import json
 import os
 import re
 import sys
@@ -156,16 +157,29 @@ def convert(source, directory, name):
     if (not target.hostname or not target.port or target.username or target.password
             or target.path or target.query or target.fragment or re.search(r"\s", endpoint)):
         fail("Endpoint 无效")
-    query = {"publickey": peer["publickey"], "address": interface["address"],
-             "allowedips": peer["allowedips"]}
-    for key, value in interface.items():
-        if key not in {"privatekey", "address"}:
-            query[key] = value
+    # Shadowrocket 2.2.93 的实际分享格式：密钥在查询参数中，AWG 设置
+    # 放入 obfsParam JSON；顶层 jc/s1 等字段不会自动开启混淆。
+    query = {"publicKey": peer["publickey"], "privateKey": interface["privatekey"],
+             "ip": interface["address"], "allowedips": peer["allowedips"], "udp": "1"}
+    for key in ("dns", "mtu"):
+        if key in interface:
+            query[key] = ",".join(part.strip() for part in interface[key].split(","))
+    obfs_keys = ("jc", "jmin", "jmax", "s1", "s2", "s3", "s4",
+                 "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5")
+    obfs = {key: interface[key] for key in obfs_keys if key in interface}
+    if obfs:
+        obfs.update(random_trailers="false", disable_cookies="false")
+        query["obfs"] = "amneziawg"
+        query["obfsParam"] = json.dumps(obfs, separators=(",", ":"))
     if "presharedkey" in peer:
+        # 保留原通用字段，并提供两种 camelCase 拼写；值始终来自原配置。
+        # PSK 的客户端字段识别仍需设备核对，绝不自动更换服务器密钥。
         query["presharedkey"] = peer["presharedkey"]
+        query["presharedKey"] = peer["presharedkey"]
+        query["preSharedKey"] = peer["presharedkey"]
     if "persistentkeepalive" in peer:
         query["keepalive"] = peer["persistentkeepalive"]
-    uri = "wireguard://" + quote(interface["privatekey"], safe="") + "@" + endpoint + "/?" + urlencode(query) + "#" + quote(name, safe="")
+    uri = "wg://" + endpoint + "?" + urlencode(query, quote_via=quote) + "#" + quote(name, safe="")
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     if directory.is_symlink():
@@ -210,6 +224,7 @@ export_client() {
     chmod 600 "$dest/$name.node.png" "$dest/$name.native.png"
     echo '节点链接二维码：在小火箭首页左上角扫码添加。'
     echo '兼容性待设备实测；导入后须核对 PSK、S1–S4、H1–H4、I1–I5 等参数。'
+    echo '新版按小火箭分享格式导出；请删除旧导入节点后重新导入，检查混淆为 AmneziaWG。'
     qrencode -t ANSIUTF8 < "$dest/$name.uri" || return
     printf '\n节点链接（复制完整一行，到小火箭首页粘贴）：\n'
     cat -- "$dest/$name.uri" || return
