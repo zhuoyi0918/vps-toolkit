@@ -1,8 +1,10 @@
 # VPS Toolkit
 
-## AmneziaWG 独立工具 v1.0.2
+## AmneziaWG 独立工具 v1.0.3
 
 提供 AWG 2.0 一键部署、客户端编号选择、二维码和节点链接导出、客户端授权撤销及服务卸载。[完整说明](amneziawg/README.md)。
+
+v1.0.3 按小火箭 2.2.93 的实际分享格式导出 `wg://` 链接，将 AWG 混淆参数写入 `obfsParam`，并修复 DNS 列表中的多余 `+`。升级后重新导出、重新导入节点即可，服务器和客户端密钥无需重建。
 
 ```bash
 curl -fL --retry 3 https://raw.githubusercontent.com/zhuoyi0918/vps-toolkit/main/amneziawg.sh -o /root/zhuoyi-amneziawg.sh && bash /root/zhuoyi-amneziawg.sh
