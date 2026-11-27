@@ -86,11 +86,11 @@ class MenuTests(unittest.TestCase):
         values = parse_qs(parsed.query)
         self.assertEqual(values['publicKey'], [PUBLIC])
         self.assertEqual(values['privateKey'], [PRIVATE])
-        self.assertEqual(values['presharedkey'], [PSK])
-        self.assertEqual(values['preSharedKey'], [PSK])
         self.assertEqual(values['presharedKey'], [PSK])
-        self.assertEqual(values['ip'], ['10.9.0.2/32'])
-        self.assertEqual(values['allowedips'], ['0.0.0.0/0,::/0'])
+        self.assertNotIn('presharedkey', values)
+        self.assertNotIn('preSharedKey', values)
+        self.assertEqual(values['ip'], ['10.9.0.2'])
+        self.assertNotIn('allowedips', values)
         self.assertEqual(values['keepalive'], ['25'])
         # Shadowrocket decodes percent escapes but may retain form-encoded '+'.
         self.assertNotIn('+', parsed.query)
@@ -104,10 +104,16 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(obfs['h1'], '100-200')
         self.assertEqual(obfs['i1'], '<b 0x1234><r 20>')
         self.assertEqual(obfs['jc'], '4')
-        self.assertEqual(obfs['random_trailers'], 'false')
-        self.assertEqual(obfs['disable_cookies'], 'false')
+        self.assertNotIn('random_trailers', obfs)
+        self.assertNotIn('disable_cookies', obfs)
         self.assertNotIn('\n', uri)
         self.assertEqual((self.out / 'phone.conf').read_text(), CONFIG)
+
+    def test_split_routes_are_not_silently_broadened(self):
+        text = CONFIG.replace('AllowedIPs = 0.0.0.0/0\nAllowedIPs = ::/0',
+                              'AllowedIPs = 10.0.0.0/8')
+        self.assertNotEqual(self.convert(text).returncode, 0)
+        self.assertFalse(self.out.exists())
 
     def test_credential_permissions(self):
         result = self.convert()
