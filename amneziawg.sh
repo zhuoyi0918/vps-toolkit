@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION=1.0.0
+VERSION=1.0.2
 HOME_DIR=/opt/zhuoyi-amneziawg
 CLIENT_DIR=/root/awg
 SERVER_CONF=/etc/amnezia/amneziawg/awg0.conf
@@ -195,9 +195,9 @@ export_client() {
     dependencies || return
     local name=${1:-} dest
     if [[ -z "$name" ]]; then
-        echo '现有客户端：'
-        list_files
-        read -r -p '要导出的客户端名称：' name || return
+        select_client || return
+        name=$SELECTED_CLIENT
+        [[ -n "$name" ]] || return 0
     fi
     valid_name "$name" || { error '名称限 1–32 位字母、数字、下划线和连字符。'; return 1; }
     [[ -s "$CLIENT_DIR/$name.conf" && ! -L "$CLIENT_DIR/$name.conf" ]] || { error '找不到此客户端配置。'; return 1; }
@@ -211,6 +211,9 @@ export_client() {
     echo '节点链接二维码：在小火箭首页左上角扫码添加。'
     echo '兼容性待设备实测；导入后须核对 PSK、S1–S4、H1–H4、I1–I5 等参数。'
     qrencode -t ANSIUTF8 < "$dest/$name.uri" || return
+    printf '\n节点链接（复制完整一行，到小火箭首页粘贴）：\n'
+    cat -- "$dest/$name.uri" || return
+    printf '\n'
     printf '\n已保存：\n%s\n%s\n%s\n%s\n' "$dest/$name.node.png" "$dest/$name.native.png" "$dest/$name.conf" "$dest/$name.uri"
     echo 'node.png 为节点链接；native.png 为原生配置二维码（供 AmneziaWG）。'
     echo '二维码若太密，请用 SFTP 下载 PNG 后扫描。全部文件含凭据，请勿公开。'
@@ -222,6 +225,40 @@ list_files() {
         [[ -f "$file" ]] || continue
         basename "$file" .conf
     done
+}
+
+select_client() {
+    SELECTED_CLIENT=''
+    local -a clients=()
+    local index choice
+    mapfile -t clients < <(list_files)
+    if (( ${#clients[@]} == 0 )); then
+        echo '暂无客户端，请先选择 4 新增客户端。'
+        return 0
+    fi
+    echo '现有客户端：'
+    for index in "${!clients[@]}"; do
+        printf '%s. %s\n' "$((index + 1))" "${clients[index]}"
+    done
+    echo '0. 返回'
+    while read -r -p '请选择客户端编号（也可输入名称）：' choice; do
+        [[ "$choice" == 0 ]] && return 0
+        if [[ "$choice" =~ ^[0-9]{1,6}$ ]]; then
+            index=$((10#$choice))
+            if (( index >= 1 && index <= ${#clients[@]} )); then
+                SELECTED_CLIENT=${clients[index - 1]}
+                return 0
+            fi
+        fi
+        for index in "${!clients[@]}"; do
+            if [[ "$choice" == "${clients[index]}" ]]; then
+                SELECTED_CLIENT=$choice
+                return 0
+            fi
+        done
+        echo '选择无效，请输入列表中的编号，或输入 0 返回。'
+    done
+    return 1
 }
 
 add_client() {
@@ -237,8 +274,9 @@ add_client() {
 delete_client() {
     require_service || return
     local name
-    list_files
-    read -r -p '要删除的客户端名称：' name || return
+    select_client || return
+    name=$SELECTED_CLIENT
+    [[ -n "$name" ]] || return 0
     valid_name "$name" || { error '名称无效。'; return 1; }
     confirm "将撤销 $name 的 VPN 授权并删除本地导出文件，输入客户端名称确认" "$name" || { echo '已取消。'; return; }
     # 上游同时删除持久配置和实时 peer；失败时保留导出文件用于排查。
@@ -298,7 +336,7 @@ main() {
     while :; do
         printf '\nAmneziaWG 中文管理 v%s\n' "$VERSION"
         printf '%s\n' '1. 安装 / 重启后继续安装 AWG 2.0' '2. 服务状态与握手信息' \
-            '3. 客户端列表' '4. 新增客户端并生成二维码' '5. 导出已有客户端二维码' \
+            '3. 客户端列表' '4. 新增客户端并导出二维码和节点链接' '5. 导出已有客户端（二维码和节点链接）' \
             '6. 删除客户端（撤销授权）' '7. 重启 VPN 服务' '8. 卸载 AmneziaWG' '0. 退出'
         read -r -p '请选择：' choice || break
         case "$choice" in
