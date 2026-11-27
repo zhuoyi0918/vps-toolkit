@@ -1,12 +1,13 @@
 import base64
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'amneziawg.sh'
 PRIVATE = base64.b64encode(bytes(range(32))).decode()
@@ -77,22 +78,34 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         uri = (self.out / 'phone.uri').read_text()
         parsed = urlsplit(uri)
-        self.assertEqual(parsed.scheme, 'wireguard')
-        self.assertEqual(unquote(parsed.username), PRIVATE)
+        self.assertEqual(parsed.scheme, 'wg')
+        self.assertIsNone(parsed.username)
         self.assertEqual(parsed.hostname, '192.0.2.10')
         self.assertEqual(parsed.port, 51820)
         self.assertEqual(parsed.fragment, 'phone')
         values = parse_qs(parsed.query)
-        self.assertEqual(values['publickey'], [PUBLIC])
+        self.assertEqual(values['publicKey'], [PUBLIC])
+        self.assertEqual(values['privateKey'], [PRIVATE])
         self.assertEqual(values['presharedkey'], [PSK])
-        self.assertEqual(values['address'], ['10.9.0.2/32'])
+        self.assertEqual(values['preSharedKey'], [PSK])
+        self.assertEqual(values['presharedKey'], [PSK])
+        self.assertEqual(values['ip'], ['10.9.0.2/32'])
         self.assertEqual(values['allowedips'], ['0.0.0.0/0,::/0'])
         self.assertEqual(values['keepalive'], ['25'])
+        # Shadowrocket decodes percent escapes but may retain form-encoded '+'.
+        self.assertNotIn('+', parsed.query)
+        self.assertEqual(values['dns'], ['1.1.1.1,8.8.8.8'])
+        self.assertEqual(values['obfs'], ['amneziawg'])
+        obfs = json.loads(values['obfsParam'][0])
         for key in ('jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4',
                     'h1', 'h2', 'h3', 'h4', 'i1', 'i2', 'i3', 'i4', 'i5'):
-            self.assertIn(key, values)
-        self.assertEqual(values['h1'], ['100-200'])
-        self.assertEqual(values['i1'], ['<b 0x1234><r 20>'])
+            self.assertIn(key, obfs)
+            self.assertNotIn(key, values)
+        self.assertEqual(obfs['h1'], '100-200')
+        self.assertEqual(obfs['i1'], '<b 0x1234><r 20>')
+        self.assertEqual(obfs['jc'], '4')
+        self.assertEqual(obfs['random_trailers'], 'false')
+        self.assertEqual(obfs['disable_cookies'], 'false')
         self.assertNotIn('\n', uri)
         self.assertEqual((self.out / 'phone.conf').read_text(), CONFIG)
 
