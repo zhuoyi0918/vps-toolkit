@@ -1,5 +1,15 @@
 # VPS Toolkit
 
+## AmneziaWG 独立工具 v1.0.2
+
+提供 AWG 2.0 一键部署、客户端编号选择、二维码和节点链接导出、客户端授权撤销及服务卸载。[完整说明](amneziawg/README.md)。
+
+```bash
+curl -fL --retry 3 https://raw.githubusercontent.com/zhuoyi0918/vps-toolkit/main/amneziawg.sh -o /root/zhuoyi-amneziawg.sh && bash /root/zhuoyi-amneziawg.sh
+```
+
+之后运行 `awg-menu`。已有服务可直接选择 `5`，按编号导出客户端。小火箭 2.2.93 的实际扫码与联网仍需设备验证。下面是原 VPS Toolkit 主程序说明。
+
 Linux VPS 命令行工具，合并原 traffic-scheduler 的定时下行、手动下载测试、PF/Realm 管理、云平台检测与客户机 Agent 审计。版本 **3.3.1**。
 
 **升级保留已有下载任务的启停状态、原配置、当日统计与运行中的 Realm；新自动下载任务默认关闭。** 不修改 SSH、防火墙、安全组、系统 Python 或 libc，不新增网站、TLS 监听或远程管理端口。HTTPS 仅作为下载客户端使用。
