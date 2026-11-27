@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 umask 077
 
-VERSION=1.0.3
+VERSION=1.0.4
 HOME_DIR=/opt/zhuoyi-amneziawg
 CLIENT_DIR=/root/awg
 SERVER_CONF=/etc/amnezia/amneziawg/awg0.conf
@@ -159,8 +159,17 @@ def convert(source, directory, name):
         fail("Endpoint 无效")
     # Shadowrocket 2.2.93 的实际分享格式：密钥在查询参数中，AWG 设置
     # 放入 obfsParam JSON；顶层 jc/s1 等字段不会自动开启混淆。
-    query = {"publicKey": peer["publickey"], "privateKey": interface["privatekey"],
-             "ip": interface["address"], "allowedips": peer["allowedips"], "udp": "1"}
+    # 与已验证可用的脚本链接一致：ip 只放地址，PSK 仅用 presharedKey。
+    addresses = ",".join(str(ipaddress.ip_interface(value.strip()).ip)
+                         for value in interface["address"].split(","))
+    routes = {str(ipaddress.ip_network(value.strip(), strict=False))
+              for value in peer["allowedips"].split(",")}
+    if routes not in ({"0.0.0.0/0"}, {"0.0.0.0/0", "::/0"}):
+        fail("小火箭节点模板仅支持全流量 AllowedIPs；分流配置请使用原生客户端")
+    query = {"publicKey": peer["publickey"], "privateKey": interface["privatekey"]}
+    if "presharedkey" in peer:
+        query["presharedKey"] = peer["presharedkey"]
+    query["ip"] = addresses
     for key in ("dns", "mtu"):
         if key in interface:
             query[key] = ",".join(part.strip() for part in interface[key].split(","))
@@ -168,17 +177,11 @@ def convert(source, directory, name):
                  "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5")
     obfs = {key: interface[key] for key in obfs_keys if key in interface}
     if obfs:
-        obfs.update(random_trailers="false", disable_cookies="false")
         query["obfs"] = "amneziawg"
         query["obfsParam"] = json.dumps(obfs, separators=(",", ":"))
-    if "presharedkey" in peer:
-        # 保留原通用字段，并提供两种 camelCase 拼写；值始终来自原配置。
-        # PSK 的客户端字段识别仍需设备核对，绝不自动更换服务器密钥。
-        query["presharedkey"] = peer["presharedkey"]
-        query["presharedKey"] = peer["presharedkey"]
-        query["preSharedKey"] = peer["presharedkey"]
     if "persistentkeepalive" in peer:
         query["keepalive"] = peer["persistentkeepalive"]
+    query["udp"] = "1"
     uri = "wg://" + endpoint + "?" + urlencode(query, quote_via=quote) + "#" + quote(name, safe="")
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
